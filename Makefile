@@ -14,6 +14,9 @@ cgigroup = nobody
 
 all: man2html hman
 
+libman2html.so: ./man2html.c
+	$(CC) -o $@ -O2 -shared -fPIC -DUSE_TCL_STUBS=1 -l tcl8.5 $<
+
 man2html:	$(OBJECTS)
 	$(CC) $(LDFLAGS) -o man2html $(OBJECTS)
 

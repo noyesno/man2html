@@ -21,9 +21,421 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include "defs.h"
+#include <tcl.h>
+
+/*% BEGIN defs.h %*/
+
+typedef struct STRDEF STRDEF;
+struct STRDEF {
+    int nr,slen;
+    char *st;
+    STRDEF *next;
+};
+
+typedef struct INTDEF INTDEF;
+struct INTDEF {
+    int nr;
+    int val;
+    int incr;
+    INTDEF *next;
+};
+
+#define V(A,B) ((A)*256+(B))
+
+#include <sys/types.h>
+extern void *xmalloc(size_t size);
+extern void *xrealloc(void *ptr, size_t size);
+extern char *xstrdup(const char *s);
+
+/*% END defs.h %*/
+
+
+
+
 //#include "../src/version.h"
 static char version[] = "1.6f-1";
+
+/*%% BEGIN abbrev.c %%*/
+static char *abbrev_list[] = {
+    "GSBG", "Getting Started ",
+    "SUBG", "Customizing SunOS",
+    "SHBG", "Basic Troubleshooting",
+    "SVBG", "SunView User's Guide",
+    "MMBG", "Mail and Messages",
+    "DMBG", "Doing More with SunOS",
+    "UNBG", "Using the Network",
+    "GDBG", "Games, Demos &amp; Other Pursuits",
+    "CHANGE", "SunOS 4.1 Release Manual",
+    "INSTALL", "Installing SunOS 4.1",
+    "ADMIN", "System and Network Administration",
+    "SECUR", "Security Features Guide",
+    "PROM", "PROM User's Manual",
+    "DIAG", "Sun System Diagnostics",
+    "SUNDIAG", "Sundiag User's Guide",
+    "MANPAGES", "SunOS Reference Manual",
+    "REFMAN", "SunOS Reference Manual",
+    "SSI", "Sun System Introduction",
+    "SSO", "System Services Overview",
+    "TEXT", "Editing Text Files",
+    "DOCS", "Formatting Documents",
+    "TROFF", "Using <B>nroff</B> and <B>troff</B>",
+    "INDEX", "Global Index",
+    "CPG", "C Programmer's Guide",
+    "CREF", "C Reference Manual",
+    "ASSY", "Assembly Language Reference",
+    "PUL", "Programming Utilities and Libraries",
+    "DEBUG", "Debugging Tools",
+    "NETP", "Network Programming",
+    "DRIVER", "Writing Device Drivers",
+    "STREAMS", "STREAMS Programming",
+    "SBDK", "SBus Developer's Kit",
+    "WDDS", "Writing Device Drivers for the SBus",
+    "FPOINT", "Floating-Point Programmer's Guide",
+    "SVPG", "SunView 1 Programmer's Guide",
+    "SVSPG", "SunView 1 System Programmer's Guide",
+    "PIXRCT", "Pixrect Reference Manual",
+    "CGI", "SunCGI Reference Manual",
+    "CORE", "SunCore Reference Manual",
+    "4ASSY", "Sun-4 Assembly Language Reference",
+    "SARCH", "<FONT SIZE=\"-1\">SPARC</FONT> Architecture Manual",
+    "KR", "The C Programming Language",
+    0, 0 };
+
+static char *lookup_abbrev (char *s) {
+    int i=0;
+
+    if (!s)
+	 return "";
+    while (abbrev_list[i] && strcmp(s, abbrev_list[i]))
+	 i = i+2;
+    return abbrev_list[i] ? abbrev_list[i+1] : s;
+}
+
+/*%% END abbrev.c %%*/
+
+/*%% BEGIN strdefs.c %%*/
+
+static int nroff = 1;
+
+#define NROFF (-666)
+#define TROFF (-667)
+
+static STRDEF *chardef, *strdef, *defdef;
+static INTDEF *intdef;
+
+static INTDEF standardint[] = {
+    { V('n',' '), NROFF, 0, NULL },
+    { V('t',' '), TROFF, 0, NULL },
+    { V('o',' '), 1,     0, NULL },
+    { V('e',' '), 0,     0, NULL },
+    { V('.','l'), 70,    0, NULL },
+    { V('.','$'), 0,     0, NULL },
+    { V('.','A'), NROFF, 0, NULL },
+    { V('.','T'), TROFF, 0, NULL },
+    { V('.','V'), 1,     0, NULL }, /* the me package tests for this */
+    { 0, 0, 0, NULL } };
+
+static STRDEF standardstring[] = {
+    { V('R',' '), 1, "&#174;", NULL },
+    { V('l','q'), 2, "``", NULL },
+    { V('r','q'), 2, "''", NULL },
+    { 0, 0, NULL, NULL}
+};
+
+
+static STRDEF standardchar[] = {
+    { V('*','*'), 1, "*", NULL  },	/* math star */
+    { V('*','A'), 1, "A", NULL  },
+    { V('*','B'), 1, "B", NULL  },
+    { V('*','C'), 2, "Xi", NULL  },
+    { V('*','D'), 5, "Delta", NULL  },
+    { V('*','E'), 1, "E", NULL  },
+    { V('*','F'), 3, "Phi", NULL  },
+    { V('*','G'), 5, "Gamma", NULL  },
+    { V('*','H'), 5, "Theta", NULL  },
+    { V('*','I'), 1, "I", NULL  },
+    { V('*','K'), 1, "K", NULL  },
+    { V('*','L'), 6, "Lambda", NULL  },
+    { V('*','M'), 1, "M", NULL  },
+    { V('*','N'), 1, "N", NULL  },
+    { V('*','O'), 1, "O", NULL  },
+    { V('*','P'), 2, "Pi", NULL  },
+    { V('*','Q'), 3, "Psi", NULL  },
+    { V('*','R'), 1, "P", NULL  },
+    { V('*','S'), 5, "Sigma", NULL  },
+    { V('*','T'), 1, "T", NULL  },
+    { V('*','U'), 1, "Y", NULL  },
+    { V('*','W'), 5, "Omega", NULL  },
+    { V('*','X'), 1, "X", NULL  },
+    { V('*','Y'), 1, "H", NULL  },
+    { V('*','Z'), 1, "Z", NULL  },
+    { V('*','a'), 5, "alpha", NULL },
+    { V('*','b'), 4, "beta", NULL },
+    { V('*','c'), 2, "xi", NULL },
+    { V('*','d'), 5, "delta", NULL },
+    { V('*','e'), 7, "epsilon", NULL },
+    { V('*','f'), 3, "phi", NULL },
+    { V('*','g'), 5, "gamma", NULL },
+    { V('*','h'), 5, "theta", NULL },
+    { V('*','i'), 4, "iota", NULL },
+    { V('*','k'), 5, "kappa", NULL },
+    { V('*','l'), 6, "lambda", NULL },
+    { V('*','m'), 1, "&#181;", NULL  },
+    { V('*','n'), 2, "nu", NULL },
+    { V('*','o'), 1, "o", NULL },
+    { V('*','p'), 2, "pi", NULL },
+    { V('*','q'), 3, "psi", NULL },
+    { V('*','r'), 3, "rho", NULL },
+    { V('*','s'), 5, "sigma", NULL },
+    { V('*','t'), 3, "tau", NULL },
+    { V('*','u'), 7, "upsilon", NULL },
+    { V('*','w'), 5, "omega", NULL },
+    { V('*','x'), 3, "chi", NULL },
+    { V('*','y'), 3, "eta", NULL },
+    { V('*','z'), 4, "zeta", NULL },
+    { V('+','-'), 1, "&#177;", NULL  },
+    { V('1','2'), 1, "&#189;", NULL  },
+    { V('1','4'), 1, "&#188;", NULL  },
+    { V('3','4'), 1, "&#190;", NULL  },
+    { V('F','i'), 3, "ffi", NULL  },
+    { V('F','l'), 3, "ffl", NULL  },
+    { V('a','a'), 1, "&#180;", NULL  },
+    { V('a','p'), 1, "~", NULL  },
+    { V('b','r'), 1, "|", NULL  },
+    { V('b','u'), 1, "*", NULL  }, 	/* bullet */
+    { V('b','v'), 1, "|", NULL  },
+    { V('c','i'), 1, "o", NULL  }, 	/* circle */
+    { V('c','o'), 1, "&#169;", NULL  },
+    { V('c','t'), 1, "&#162;", NULL  },
+    { V('d','e'), 1, "&#176;", NULL  },
+    { V('d','g'), 1, "+", NULL  }, 	/* dagger */
+    { V('d','i'), 1, "&#247;", NULL  },
+    { V('e','m'), 3, "---", NULL  }, 	/* em dash */
+    { V('e','n'), 1, "-", NULL }, 	/* en dash */
+    { V('e','q'), 1, "=", NULL  },
+    { V('e','s'), 1, "&#216;", NULL  },
+    { V('f','f'), 2, "ff", NULL  },
+    { V('f','i'), 2, "fi", NULL  },
+    { V('f','l'), 2, "fl", NULL  },
+    { V('f','m'), 1, "&#180;", NULL  },
+    { V('g','a'), 1, "`", NULL  },
+    { V('h','y'), 1, "-", NULL  },
+    { V('l','c'), 2, "|&#175;", NULL  },
+    { V('i','f'), 8, "Infinity", NULL }, /* infinity sign */
+    { V('i','s'), 8, "Integral", NULL }, /* integral sign */
+    { V('l','f'), 2, "|_", NULL  },
+    { V('l','k'), 1, "<FONT SIZE=\"+2\">{</FONT>", NULL  },
+    { V('m','i'), 1, "-", NULL  },
+    { V('m','u'), 1, "&#215;", NULL  },
+    { V('n','o'), 1, "&#172;", NULL  },
+    { V('o','r'), 1, "|", NULL  },
+    { V('p','d'), 1, "d", NULL }, 	/* partial derivative */
+    { V('p','l'), 1, "+", NULL  },
+    { V('r','c'), 2, "&#175;|", NULL  },
+    { V('r','f'), 2, "_|", NULL  },
+    { V('r','g'), 1, "&#174;", NULL  },
+    { V('r','k'), 1, "<FONT SIZE=\"+2\">}</FONT>", NULL  },
+    { V('r','n'), 1, "&#175;", NULL  },
+    { V('r','u'), 1, "_", NULL  },
+    { V('s','c'), 1, "&#167;", NULL  },
+    { V('s','l'), 1, "/", NULL  },
+    { V('s','q'), 2, "[]", NULL  },
+    { V('t','s'), 1, "s", NULL }, 	/* should be terminal sigma */
+    { V('u','l'), 1, "_", NULL  },
+    { V('>','='), 1, "&gt;", NULL },
+    { V('<','='), 1, "&lt;", NULL },
+    { 0, 0, NULL, NULL  }
+};
+
+void stdinit(void) {
+    STRDEF *stdf;
+    int i;
+
+    stdf = &standardchar[0];
+    i = 0;
+    while (stdf->nr) {
+	if (stdf->st) stdf->st = xstrdup(stdf->st);
+	stdf->next = &standardchar[i];
+	stdf = stdf->next;
+	i++;
+    }
+    chardef=&standardchar[0];
+
+    stdf=&standardstring[0];
+    i=0;
+    while (stdf->nr) {
+	 /* waste a little memory, and make a copy, to avoid
+	    the segfault when we free non-malloced memory */
+	if (stdf->st) stdf->st = xstrdup(stdf->st);
+	stdf->next = &standardstring[i];
+	stdf = stdf->next;
+	i++;
+    }
+    strdef=&standardstring[0];
+
+    intdef=&standardint[0];
+    i=0;
+    while (intdef->nr) {
+	if (intdef->nr == NROFF) intdef->nr = nroff; else
+	if (intdef->nr == TROFF) intdef->nr = !nroff;
+	intdef->next = &standardint[i];
+	intdef = intdef->next;
+	i++;
+    }
+    intdef = &standardint[0];
+    defdef = NULL;
+}
+
+
+/*%% END strdefs.c %%*/
+
+     
+/*%% BEGIN cgibase.c %%*/
+
+/*
+ * The default is to use cgibase. With relative html style
+ * we generate URLs of the form "../manX/page.html".
+ */
+static int relat_html_style = 0;
+
+/*
+ * The default is to use cgibase. With current html style
+ * we generate URLs of the form "./page.html".
+ */
+static int current_html_style = 0;
+
+/*
+ * Either the user is non-local (or local, but using httpd),
+ * in which case we use http:/cgi-bin, or the user is local
+ * and uses lynx, and we use lynxcgi:/home/httpd/cgi-bin.
+ */
+
+static char *man2htmlpath = "/cgi-bin/man/man2html"; 	/* default */
+static char *cgibase_format = "http://%s"; 		/* host.domain:port */
+static char *cgibase_ll_format = "lynxcgi:%s"; 		/* directory */
+static char *cgibase = "http://localhost";		/* default */
+
+/*
+ * Separator between URL and argument string.
+ *
+ * With http:<path to script>/a/b?c+d+e the script is called
+ * with PATH_INFO=/a/b and QUERY_STRING=c+d+e and args $1=c, $2=d, $3=e.
+ * With lynxcgi:<full path to script>?c+d+e no PATH_INFO is possible.
+ */
+static char sep = '?';					/* or '/' */
+
+static void set_separator(char s) { sep = s; }
+
+static void set_lynxcgibase(char *s) {
+     int n = strlen(cgibase_ll_format) + strlen(s);
+     char *t = (char *) xmalloc(n);
+
+     sprintf(t, cgibase_ll_format, s);
+     cgibase = t;
+}
+
+static void set_cgibase(char *s) {
+     int n = strlen(cgibase_format) + strlen(s);
+     char *t = (char *) xmalloc(n);
+
+     sprintf(t, cgibase_format, s);
+     cgibase = t;
+}
+
+static void set_man2htmlpath(char *s) {
+     man2htmlpath = xstrdup(s);
+}
+
+static void set_relative_html_links(void) {
+     relat_html_style = 1;
+}
+static void set_current_html_links(void) {
+     current_html_style = 1;
+}
+
+/* What shall we say in case of relat_html_style? */
+static char *signature = "<HR>\n"
+"<p id='footer'>This document was created by\n"
+"<A HREF=\"http://github.com/hamano/man2html/\">man2html</A>,\n"
+"using the manual pages.<BR>\n"
+"%s\n</p>";
+
+#define TIMEFORMAT "%T GMT, %B %d, %Y"
+#define TIMEBUFSZ	500
+
+static void print_sig() {
+    char timebuf[TIMEBUFSZ];
+    struct tm *timetm;
+    time_t clock;
+
+    timebuf[0] = 0;
+#ifdef TIMEFORMAT
+#if 0
+    sprintf(timebuf, "Time: ");
+    clock=time(NULL);
+    timetm=gmtime(&clock);
+    strftime(timebuf+6, TIMEBUFSZ-6, TIMEFORMAT, timetm);
+    timebuf[TIMEBUFSZ-1] = 0;
+#endif
+#endif
+    //printf(signature, cgibase, man2htmlpath, timebuf);
+    printf(signature, timebuf);
+}
+
+static void include_file_html(char *g) {
+     printf("<A HREF=\"file:/usr/include/%s\">%s</A>&gt;", g,g);
+}
+
+static void man_page_html(char *sec, char *h) {
+	if (current_html_style) {
+		if (!h)
+			printf("<A HREF=\"./\">"
+			       "Return to Main Contents</A>");
+		else
+			printf("<A HREF=\"./%s.html\">%s</A>",
+			       h, h);
+	} else if (relat_html_style) {
+		if (!h)
+			printf("<A HREF=\"../index.html\">"
+			       "Return to Main Contents</A>");
+		else
+			printf("<A HREF=\"../man%s/%s.%s.html\">%s</A>",
+			       sec, h, sec, h);
+	} else {
+		if (!h)
+			printf("<A HREF=\"%s%s\">Return to Main Contents</A>",
+			       cgibase, man2htmlpath);
+		else if (!sec)
+			printf("<A HREF=\"%s%s%c%s\">%s</A>",
+			       cgibase, man2htmlpath, sep, h, h);
+		else
+			printf("<A HREF=\"%s%s%c%s+%s\">%s</A>",
+			       cgibase, man2htmlpath, sep, sec, h, h);
+	}
+}
+
+static void ftp_html(char *f) {
+     printf("<A HREF=\"ftp://%s\">%s</A>", f, f);
+}
+
+static void www_html(char *f) {
+     printf("<A HREF=\"http://%s\">%s</A>", f, f);
+}
+
+static void mailto_html(char *g) {
+     printf("<A HREF=\"mailto:%s\">%s</A>", g, g);
+}
+
+static void url_html(char *g) {
+     printf("<A HREF=\"%s\">%s</A>", g, g);
+}
+
+
+/*%% END cgibase.c %%*/
+
+
+
+
 
 /* BSD mandoc Bd/Ed example(?) blocks */
 #define BD_LITERAL  1
@@ -36,20 +448,19 @@ static char idxlabel[6] = "ixAAA";
 
 #define INDEXFILE "/tmp/manindex.list"
 
-char *fname;
-char *directory;
-FILE *idxfile;
+static char *fname;
+static FILE *idxfile;
 
-char eqndelimopen=0, eqndelimclose=0;
-char escapesym='\\', nobreaksym='\'', controlsym='.', fieldsym=0, padsym=0;
+static char eqndelimopen=0, eqndelimclose=0;
+static char escapesym='\\', nobreaksym='\'', controlsym='.', fieldsym=0, padsym=0;
 
-char *buffer=NULL;
-int buffpos=0, buffmax=0;
-int scaninbuff=0;
-int still_dd=0;
-int tabstops[20] = { 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96 };
-int maxtstop=12;
-int curpos=0;
+static char *buffer=NULL;
+static int buffpos=0, buffmax=0;
+static int scaninbuff=0;
+static int still_dd=0;
+static int tabstops[20] = { 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96 };
+static int maxtstop=12;
+static int curpos=0;
 
 static char *scan_troff(char *c, int san, char **result);
 static char *scan_troff_mandoc(char *c, int san, char **result);
@@ -293,17 +704,16 @@ add_links(char *c)
     printf("%s", c);
 }
 
-int current_font=0;
-int current_size=0;
-int fillout = 1;
+static int current_font=0;
+static int current_size=0;
+static int fillout = 1;
 
 /*
  * Kludge: remove \a - in the context
  *   .TH NAME 2 date "Version" "Title"
  * we got output \aTitle\a.
  */
-static void
-out_html(char *c) {
+static void out_html(char *c) {
 	if (!c)
 		return;
 	if (no_newline_output) {	/* remove \n if present */
@@ -3088,12 +3498,14 @@ goto_dir(char *path, char **dir, char **name) {
  *
  * Possible errors are reflected in the output. The return status is 0.
  */
+#ifdef __MAIN__
 int
 main(int argc, char **argv) {
     FILE *f;
     struct stat stbuf;
     int l, c;
     char *buf, *filename, *fnam = NULL;
+    char *directory;
 
 #ifdef __CYGWIN__
     int opterr;
@@ -3248,3 +3660,103 @@ main(int argc, char **argv) {
 	 free(buf);
     return 0;
 }
+#endif
+
+/***********************************************************************
+* TCL CMD: man2html                                                    *
+***********************************************************************/
+int man2html_ObjCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+
+    FILE *f;
+    struct stat stbuf;
+    int l, c;
+    char *buf, *filename, *fnam = NULL;
+
+    fnam = Tcl_GetString(objv[1]);
+    filename = fnam;
+
+#define XTRA 5
+    int ct;
+
+    f = fopen(fnam, "r");
+    if (f == NULL)
+         error_page("File not found", "Could not open %s\n", filename);
+
+    l = 0;
+    if (fstat(fileno(f), &stbuf) != -1)
+         l = stbuf.st_size;
+    buf = (char *) xmalloc((l+1+XTRA)*sizeof(char));
+    ct = fread(buf+1,1,l,f);
+    if (ct < l)
+         l = ct;
+    fclose(f);
+
+  buf[0] = '\n';
+  buf[l+1] = '\n';
+  buf[l+2] = buf[l+3] = 0;
+  stdinit();
+
+  scan_troff(buf+1,0,NULL);
+  dl_down();
+  out_html(change_to_font(0));
+  out_html(change_to_size(0));
+  if (!fillout) {
+      fillout=1;
+      out_html("</PRE>");
+  }
+    out_html(NEWLINE);
+    if (output_possible) {
+	/* &nbsp; for mosaic users */
+	printf("<HR>\n<A NAME=\"index\">&nbsp;</A><H2>Index</H2>\n<DL>\n");
+	manidx[mip]=0;
+	printf("%s", manidx);
+	if (subs) printf("</DL>\n");
+	printf("</DL>\n");
+	print_sig();
+	printf("</BODY>\n</HTML>\n");
+    } else {
+	if (!filename)
+	     filename = fname;
+	if (*filename == '/')
+	     error_page("Invalid Manpage",
+		   "The requested file %s is not a valid (unformatted) "
+		   "man page.\nIf the file is a formatted manpage, "
+		   "you could try to load the\n"
+		   "<A HREF=\"file://localhost%s\">plain file</A>.\n",
+		   filename, filename);
+	else
+	     error_page("Invalid Manpage",
+		   "The requested file %s is not a valid (unformatted) "
+		   "man page.", filename);
+    }
+
+    if (buf)
+	 free(buf);
+
+  return TCL_OK;
+}
+
+/***********************************************************************
+* Tcl Entry                                                            *
+***********************************************************************/
+
+int Man_Init(Tcl_Interp *interp) {
+#ifdef USE_TCL_STUBS
+  if(Tcl_InitStubs(interp, "8.4", 0) == NULL) {
+    fprintf(stderr, "Error: Tcl_InitStubs\n");
+    return TCL_ERROR;
+  }
+#else
+  if(Tcl_PkgRequire(interp, "Tcl", "8.4", 0) == NULL) {
+    fprintf(stderr, "Error: package require Tcl 8.4\n");
+    return TCL_ERROR;
+  }
+#endif
+
+  Tcl_CreateObjCommand(interp, "man2html",     man2html_ObjCmd, NULL, NULL);
+
+  return TCL_OK;
+}
+
+
+
